@@ -38,7 +38,7 @@ The system is built on three pillars of cost-efficiency and performance:
 
 ## 3. System Architecture Diagram
 
-```mermaid
+```text
 graph TD
     User([User Query]) --> Ingress{Ingress Gateway}
     
