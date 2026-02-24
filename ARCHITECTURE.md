@@ -30,9 +30,9 @@ The system is built on three pillars of cost-efficiency and performance:
 ### C. The "Step-Up" Escalation Policy
 * **Concept:** Always attempt the cheapest path first.
 * **Implementation:**
-    1.  **L1:** Try Local Expert (Llama-3-8B).
-    2.  **L2:** If confidence < 0.7, escalate to Cloud Expert (GPT-4o-mini).
-    3.  **L3:** If Reranker Score < 0.5, escalate to Reasoning Model (o1/Claude).
+    1.  **L1:** Try Fast Expert (`voyage-4`).
+    2.  **L2:** If confidence < 0.15, escalate to Domain Expert (`voyage-code-3`, `voyage-law-2`).
+    3.  **L3:** If Reranker Score < 0.10, escalate to Clarification/Fallback.
 
 ---
 
@@ -100,7 +100,7 @@ The system is implemented as a modular Java library, designed for high-throughpu
 * **Type Safety:** **Sealed Interfaces** (`permits CodeExpert, LegalExpert...`) ensure that the Router can only dispatch to known, authorized agents.
 * **Resilience:**
     * **Circuit Breakers:** Prevent cascading failures if the Voyage API experiences latency.
-    * **Fallback Strategy:** Automatically degrades to a local Llama-3 (8B) model if the Cloud Router is unreachable.
+    * **Fallback Strategy:** Automatically degrades to the Generalist expert (`voyage-4-lite`) if the specialized routing is unreachable or confidence is too low.
 * **State Management:** **MongoDB** provides a scalable document store for Semantic Caching, capitalizing on built-in TTL indexes for stale-vector eviction.
 * **Endpoint Independence:** Explicit configuration profiles (`voyage.embedding-url`, `voyage.chat-url`) separate embedding and generation workloads, enabling distinct retry capabilities and granular rate limiting.
 
