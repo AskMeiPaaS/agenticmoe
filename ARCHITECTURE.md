@@ -24,8 +24,8 @@ The system is built on three pillars of cost-efficiency and performance:
 
 ### B. Matryoshka Representation Learning (MRL)
 * **Concept:** "Elastic" vectors that retain semantic meaning even when truncated.
-* **Implementation:** The Router uses **256-dimension binary vectors** (instead of standard 1536 float32) for the initial search.
-* **Benefit:** Reduces Vector RAM usage by **~90%**, allowing the Routing Index to reside entirely in memory.
+* **Implementation:** The Router uses **512-dimension vectors** (instead of standard 1024/1536 float) for the initial search.
+* **Benefit:** Reduces Vector RAM usage and lookup time significantly, allowing the Routing Index to reside entirely in memory.
 
 ### C. The "Step-Up" Escalation Policy
 * **Concept:** Always attempt the cheapest path first.
@@ -40,37 +40,33 @@ The system is built on three pillars of cost-efficiency and performance:
 
 ```text
 graph TD
-    User([User Query]) --> Ingress{Ingress Gateway}
+    User([User Query]) --> Cache{Mongo Semantic Cache}
     
-    subgraph "Tier 1: Semantic Routing (Local)"
-        Ingress --> Router[voyage-4-nano]
-        Router -- "Binary Quantized Search" --> SkillMap[(Expert Clusters)]
-        SkillMap --> Decider{Confidence Check}
+    subgraph "Tier 1: Semantic Routing (voyage-4-large)"
+        Cache -- "Cache Miss" --> Router[Embed Query 512-dim]
+        Router -- "Cosine Similarity" --> SkillMap[(Expert Clusters)]
+        SkillMap --> Decider{Threshold Check}
     end
     
     subgraph "Tier 2: Domain Experts"
-        Decider -- "Tech/Syntax" --> CodeExp[Code Expert<br/>(voyage-code-3)]
-        Decider -- "Compliance" --> LegalExp[Legal Expert<br/>(voyage-law-2)]
-        Decider -- "General" --> GenExp[Generalist<br/>(voyage-4-lite)]
-    end
-    
-    subgraph "Tier 3: Audit & Validation"
-        CodeExp & LegalExp & GenExp --> Validator[rerank-2.5-lite]
-        Validator -- "Score > 0.8" --> Execution[LLM Execution]
-        Validator -- "Score < 0.5" --> Loop[Feedback Loop / Clarify]
+        Decider -- "Score > 0.15 (Tech)" --> CodeExp[Code Expert<br/>(voyage-code-3)]
+        Decider -- "Score > 0.15 (Fin)" --> FinExp[Finance Expert<br/>(voyage-finance-2)]
+        Decider -- "Score < 0.15 (Fallback)" --> GenExp[Generalist<br/>(voyage-4)]
+        Decider -- "Score < 0.10" --> Clarify[Clarify Expert]
     end
 
-    Execution --> Output([Final Response])
-    Loop -.-> Router
+    CodeExp & FinExp & GenExp & Clarify --> Output([Final Response])
+    Output -.-> CacheUpdate[(Store in MongoDB)]
+    Cache -- "Cache Hit" --> Output
 ```
 ## 4. Component Definitions
 
 ### Tier 1: The Ingress Router (`com.ayedata.agenticmoe.router`)
-The "Brain" of the operation. It decides *where* a query goes without incurring network latency or high inference costs.
-* **Model:** `voyage-4-nano` (Quantized to 1-bit/Binary).
+The "Brain" of the operation. It decides *where* a query goes without incurring high inference costs.
+* **Model:** `voyage-4-large` (MRL 512-dim arrays).
 * **Function:** Maps user intent to a specific expert cluster.
 * **Logic:** Uses **Cosine Similarity** against a pre-computed map of "Expert Capabilities" (Skill Map).
-* **Performance Constraint:** Must execute routing logic in **< 15ms** (99th percentile).
+* **Performance Constraint:** Must execute API routing logic rapidly in an async, non-blocking flow.
 
 ### Tier 2: The Expert Swarm (`com.ayedata.agenticmoe.experts`)
 Each expert is an isolated RAG pipeline optimized for a specific domain. They utilize **Sealed Interfaces** in Java to strictly enforce domain boundaries.
@@ -78,18 +74,18 @@ Each expert is an isolated RAG pipeline optimized for a specific domain. They ut
 | Expert Type | Embedding Model | Optimization Goal | Knowledge Base |
 | :--- | :--- | :--- | :--- |
 | **Code Expert** | `voyage-code-3` | Syntax, API Signatures, Deprecation checks | GitHub, JIRA, Confluence |
-| **Legal Expert** | `voyage-law-2` | Regulatory nuance, Contract definitions | SharePoint, LexisNexis |
-| **Generalist** | `voyage-4-lite` | Broad context, Summarization | Wiki, Public Internet |
+| **Finance Expert** | `voyage-finance-2` | Regulatory nuance, Financial queries | Trading data, Reports |
+| **Generalist** | `voyage-4` | Broad context, Summarization | Wiki, Public Internet |
 
 ### Tier 3: Validation & Memory (`com.ayedata.agenticmoe.core`)
 The "Teacher" layer that ensures quality and learns from mistakes.
 * **Validator:** `rerank-2.5-lite`. It scores the retrieved documents from the Expert.
     * *Threshold:* If Score < 0.5, the system aborts the LLM call and asks for clarification.
 * **Memory:** `voyage-context-3`. Stores "Failure Embeddings." If a query fails or receives negative feedback, its vector is stored as a "Negative Constraint" to prevent the Router from making the same mistake twice.
-* **Semantic Caching:** Uses **MongoDB** with Time-To-Live (TTL) indexing (e.g., 30-day expiration) to cache query embeddings (`CachedEmbedding.java`). The `SemanticCache` layer sits before Tier 1, instantly returning expert logic if the exact query embedding `voyage-4-nano` matches the cache.
+* **Semantic Caching:** Uses **MongoDB** with Time-To-Live (TTL) indexing (e.g., 30-day expiration) to cache query embeddings (`CachedEmbedding.java`). The `SemanticCache` layer sits before Tier 1, instantly returning expert logic if the exact query embedding (`inputText`) matches the cache.
 
-### Thresholding & Binary Quantization Note
-When switching from `float32` vectors to **Binary Quantized Vectors**, cosine similarity scores drop significantly. In a float space, matching context might score `0.80`, but in binary 256-dim space, that same match yields `0.15`. The `voyage.routing.threshold` handles this intentionally to enforce rapid classification.
+### Thresholding Note
+When using MRL sliced vectors arrays, cosine similarity scores may act differently from full-scale embeddings. The `voyage.routing.threshold` handles this intentionally to enforce rapid classification boundaries.
 
 ## 5. Implementation Stack (Java 21)
 
@@ -165,8 +161,8 @@ By shifting from a monolithic "One-Model-Fits-All" approach to the **Ayedata Age
 
 | Cost Component | Legacy Monolithic Agent (GPT-4) | Ayedata MoE Agent (Voyage + Mixed Models) | Savings |
 | :--- | :--- | :--- | :--- |
-| **Routing** | $500 (GPT-3.5 Turbo) | **$0** (Local Nano Model) | **100%** |
-| **Vector Storage** | $2,000 (Full Float32) | **$200** (Binary Quantization / MRL) | **90%** |
+| **Routing** | $500 (GPT-3.5 Turbo) | **$0** (Minimal MRL Model) | **100%** |
+| **Vector Storage** | $2,000 (Full Dimensions) | **$200** (MRL 512-dim) | **90%** |
 | **Context Processing** | $15,000 (Retrieving Top-10 Chunks) | **$4,500** (Top-3 via Rerank Gate) | **70%** |
 | **LLM Inference** | $30,000 (All queries to Frontier Model) | **$8,000** (80% routed to Small/Medium models) | **73%** |
 | **Total Monthly Bill** | **$47,500** | **$12,700** | **~73% Savings** |
@@ -184,13 +180,13 @@ All user queries pass through a `SanitizationFilter` in the `VoyageClient` befor
 
 ### B. Role-Based Access Control (RBAC)
 The `SemanticRouter` integrates with the enterprise identity provider (IdP) to check user permissions *before* dispatching to a Domain Expert.
-* **Logic:** A query routed to the `LegalExpert` (Tier 2) will be blocked if the user's JWT does not contain the `GROUP_LEGAL` claim.
-* **Benefit:** Ensures that sensitive knowledge bases (e.g., HR records, M&A documents) remain inaccessible to unauthorized agents.
+* **Logic:** A query routed to the `FinanceExpert` (Tier 2) will be blocked if the user's JWT does not contain the `GROUP_FINANCE` claim.
+* **Benefit:** Ensures that sensitive knowledge bases (e.g., Financial records, M&A documents) remain inaccessible to unauthorized agents.
 
 ### C. Data Residency & Local Routing
-The Tier 1 routing logic (using `voyage-4-nano`) executes entirely **locally** (On-Prem or Private Cloud).
-* **Privacy:** Sensitive query intents are processed in-memory.
-* **Leakage Prevention:** No data is sent to external model providers unless the query is explicitly escalated to a Tier 2/3 cloud expert, and even then, it is anonymized where possible.
+The Tier 1 routing logic executes rapidly inside the container node.
+* **Privacy:** Sensitive query intents are processed in rapid parallel flows.
+* **Leakage Prevention:** No data is sent to external model providers unless the query is explicitly escalated to a Tier 2/3 cloud expert.
 
 ---
 
