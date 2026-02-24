@@ -56,8 +56,8 @@ graph TD
     
     subgraph "Tier 3: Audit & Validation"
         CodeExp & LegalExp & GenExp --> Validator[rerank-2.5-lite]
-        Validator -- "Score > 0.8" --> Execution[LLM Execution]
-        Validator -- "Score < 0.5" --> Loop[Feedback Loop / Clarify]
+        Validator -- "Score > 0.15" --> Execution[LLM Execution]
+        Validator -- "Score < 0.10" --> Loop[Feedback Loop / Clarify]
     end
 
     Execution --> Output([Final Response])
