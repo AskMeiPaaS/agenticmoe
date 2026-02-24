@@ -117,20 +117,29 @@ project-root
 │   │   │               ├── AgentApplication.java
 │   │   │               ├── api
 │   │   │               │   └── AgentController.java
+│   │   │               ├── cache
+│   │   │               │   ├── CachedEmbedding.java
+│   │   │               │   ├── ExpertSkillEmbedding.java
+│   │   │               │   └── SemanticCache.java
 │   │   │               ├── config
-│   │   │               │   └── AppConfig.java
+│   │   │               │   ├── AppConfig.java
+│   │   │               │   └── SecurityConstants.java
 │   │   │               ├── core
+│   │   │               │   ├── VectorMath.java
 │   │   │               │   └── VoyageClient.java
 │   │   │               ├── experts
-│   │   │               │   ├── Expert.java
+│   │   │               │   ├── ClarifyExpert.java
 │   │   │               │   ├── CodeExpert.java
-│   │   │               │   ├── LegalExpert.java
+│   │   │               │   ├── Expert.java
+│   │   │               │   ├── FinanceExpert.java
 │   │   │               │   └── GeneralistExpert.java
 │   │   │               ├── model
-│   │   │               │   └── ExpertType.java
+│   │   │               │   ├── ExpertType.java
+│   │   │               │   └── ScoredDocument.java
 │   │   │               ├── orchestrator
 │   │   │               │   └── AgentService.java
 │   │   │               └── router
+│   │   │                   ├── RouterState.java
 │   │   │                   └── SemanticRouter.java
 │   │   └── resources
 │   │       └── application.properties
